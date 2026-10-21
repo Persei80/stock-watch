@@ -64,8 +64,37 @@
     <button type="button" class="undo" hidden></button>
   </div>
 
+  <dialog id="detail" class="detail" aria-labelledby="detail-symbol">
+    <div class="detail-body">
+      <div class="detail-head">
+        <div>
+          <div id="detail-symbol" class="detail-symbol" dir="ltr"></div>
+          <div class="detail-name muted" dir="auto"></div>
+        </div>
+        <button type="button" class="detail-close" data-i18n-title="close" aria-label="Close">&times;</button>
+      </div>
+      <div class="detail-quote">
+        <span class="detail-price" dir="ltr"></span>
+        <span class="detail-change" dir="ltr"></span>
+        <span class="detail-period muted"></span>
+      </div>
+      <div class="detail-ext ext small" hidden>
+        <span class="ext-label muted"></span>
+        <span class="ext-price" dir="ltr"></span>
+        <span class="ext-change" dir="ltr"></span>
+      </div>
+      <div class="ranges" role="tablist"></div>
+      <div class="chart-wrap">
+        <svg id="chart" aria-hidden="true"></svg>
+        <div class="chart-tip" hidden><span class="tip-price" dir="ltr"></span><span class="tip-time muted"></span></div>
+        <p class="chart-msg muted" hidden></p>
+      </div>
+      <dl class="detail-stats"></dl>
+    </div>
+  </dialog>
+
   <template id="card-tpl">
-    <article class="card">
+    <article class="card" tabindex="0">
       <button type="button" class="remove" aria-label="Remove">&times;</button>
       <div class="card-head">
         <div class="logo"></div>
@@ -100,6 +129,7 @@
   </template>
 
   <script src="i18n.js"></script>
+  <script src="detail.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

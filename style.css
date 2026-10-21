@@ -216,6 +216,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px 24px 48px; }
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-width: 0;
   transition: border-color 0.2s;
 }
 .card:hover { border-color: color-mix(in srgb, var(--muted) 45%, var(--border)); }
@@ -339,6 +340,106 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px 24px 48px; }
   padding: 0;
 }
 
+/* ---------- detail window ---------- */
+
+.card { cursor: pointer; }
+.card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.detail {
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0;
+  width: min(820px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+}
+.detail::backdrop { background: rgba(0, 0, 0, 0.5); }
+.detail-body { padding: 20px 22px 22px; display: flex; flex-direction: column; gap: 12px; }
+.detail-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.detail-symbol { font-size: 22px; font-weight: 700; }
+.detail-name { font-size: 14px; }
+.detail-close {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.detail-close:hover { color: var(--text); background: var(--surface-2); }
+.detail-quote { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.detail-price { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.detail-change { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--muted); }
+.detail-change[data-dir="up"] { color: var(--up); }
+.detail-change[data-dir="down"] { color: var(--down); }
+.detail-period { font-size: 14px; }
+
+.ranges { display: flex; gap: 4px; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+.ranges button {
+  flex: none;
+  border: 0;
+  background: none;
+  padding: 8px 12px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--muted);
+  border-bottom: 3px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+.ranges button:hover { color: var(--text); }
+.ranges button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+
+.chart-wrap { position: relative; height: 300px; touch-action: pan-y; user-select: none; }
+#chart { display: block; overflow: visible; }
+#chart .grid { stroke: var(--border); stroke-width: 1; }
+#chart .baseline { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 4; opacity: 0.7; }
+#chart .ylab, #chart .xlab { fill: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+#chart .cross { stroke: var(--muted); stroke-width: 1; }
+.chart-tip {
+  position: absolute;
+  top: -6px;
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.chart-msg { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; }
+
+.detail-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px 20px;
+  margin: 4px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
+.detail-stats div { display: flex; justify-content: space-between; gap: 8px; border-bottom: 1px dashed var(--border); padding-bottom: 6px; }
+.detail-stats dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 640px) {
+  .detail { width: 100vw; max-width: 100vw; height: 100dvh; max-height: 100dvh; border-radius: 0; border: 0; }
+  .detail-body { padding: 14px 16px 24px; }
+  .detail-price { font-size: 28px; }
+  .ranges { gap: 0; justify-content: space-between; }
+  .ranges button { padding: 8px 5px; font-size: 13px; }
+  .chart-wrap { height: 230px; }
+  .detail-stats { grid-template-columns: 1fr 1fr; gap: 8px 14px; font-size: 13px; }
+}
+
 [hidden] { display: none !important; }
 
 /* ---------- small screens ---------- */
@@ -349,7 +450,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px 24px 48px; }
   .actions { margin-inline-start: auto; }
   main { padding: 16px 16px 40px; }
   .add-form { flex-basis: 100%; max-width: none; }
-  .grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .card { padding: 12px; }
   .price { font-size: 21px; }
   .card-head { gap: 8px; }

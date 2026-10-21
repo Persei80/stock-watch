@@ -106,6 +106,15 @@ function parseQuote(raw) {
     realTime: raw.realTime === 'true',
     status: raw.curmktstatus || '',
     ext: null,
+    stats: {
+      yrhi: price(raw.yrhiprice),
+      yrlo: price(raw.yrloprice),
+      // Market cap for Tel Aviv is in agorot too and comes pre-formatted; skip it.
+      mktcap: scale === 1 ? raw.mktcapView : null,
+      pe: raw.pe,
+      divy: raw.dividendyield,
+      vol: raw.volume_alt,
+    },
   };
   const ext = raw.ExtendedMktQuote;
   if (ext && (q.status === 'PRE_MKT' || q.status === 'POST_MKT') && num(ext.last) != null) {
@@ -160,6 +169,7 @@ async function refreshQuotes() {
   }
   markUpdated();
   renderMarketStatus();
+  renderDetailQuote();
   if (state.sort !== 'manual') applySort();
 }
 
@@ -224,6 +234,10 @@ function createCard(symbol) {
   const node = $('#card-tpl').content.firstElementChild.cloneNode(true);
   node.dataset.symbol = symbol;
   $('.remove', node).addEventListener('click', () => removeSymbol(symbol));
+  node.addEventListener('click', (e) => { if (!e.target.closest('.remove')) openDetail(symbol); });
+  node.addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target === node) { e.preventDefault(); openDetail(symbol); }
+  });
   $('.logo', node).textContent = symbol.replace(/^\d+/, '')[0] || symbol[0];
   translate(node);
   state.cards.set(symbol, node);
@@ -378,6 +392,7 @@ function applyLang() {
   setConn($('#conn-status').dataset.kind || 'connecting');
   state.symbols.forEach((s) => renderCard(s));
   renderUpdated();
+  if (detail.symbol) { renderDetailQuote(); drawChart(); }
 }
 
 // ---------- toast ----------
@@ -584,6 +599,7 @@ document.addEventListener('visibilitychange', () => {
 
 setupControls();
 setupSearch();
+setupDetail();
 setupInstall();
 applyLang();
 renderAll();
