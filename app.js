@@ -251,7 +251,7 @@ function renderCard(symbol, flash) {
   const ext = $('.ext', card);
   ext.hidden = !q.ext;
   if (q.ext) {
-    $('.ext-label', ext).textContent = t(q.ext.type === 'PRE_MKT' ? 'marketPre' : 'marketPost');
+    setText($('.ext-label', ext), t(q.ext.type === 'PRE_MKT' ? 'marketPre' : 'marketPost'));
     $('.ext-price', ext).textContent = fmtPrice(q.ext.c, cur);
     const ch = $('.ext-change', ext);
     ch.textContent = fmtChange(q.ext.d, q.ext.dp);
@@ -311,7 +311,7 @@ function renderMarketStatus() {
   else if (us.status === 'POST_MKT') { key = 'marketPost'; cls = 'ext'; }
   el.dataset.key = key;
   el.className = 'pill market ' + cls;
-  el.textContent = t(key);
+  setText(el, t(key));
   el.hidden = false;
 }
 
@@ -342,29 +342,39 @@ function markUpdated() {
 function renderUpdated() {
   if (!state.lastUpdate) return;
   const time = new Date(state.lastUpdate).toLocaleTimeString(LOCALES[state.lang]);
-  $('#updated').textContent = `${t('updated')}: ${time}`;
+  setText($('#updated'), `${t('updated')}: ${time}`);
 }
 
 function setConn(kind) {
   const el = $('#conn-status');
   el.dataset.kind = kind;
-  $('.label', el).textContent = t(kind);
+  setText($('.label', el), t(kind));
+}
+
+// The page layout always stays left-to-right so nothing jumps when the
+// language changes; only the text itself runs right-to-left in Hebrew.
+const textDir = () => (state.lang === 'he' ? 'rtl' : 'ltr');
+function setText(el, text) {
+  el.textContent = text;
+  el.dir = textDir();
 }
 
 function translate(root = document) {
-  root.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
-  root.querySelectorAll('[data-i18n-placeholder]').forEach((el) => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+  root.querySelectorAll('[data-i18n]').forEach((el) => setText(el, t(el.dataset.i18n)));
+  root.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
+    el.placeholder = t(el.dataset.i18nPlaceholder);
+    el.dir = textDir();
+  });
   root.querySelectorAll('[data-i18n-title]').forEach((el) => { el.title = t(el.dataset.i18nTitle); });
 }
 
 function applyLang() {
   document.documentElement.lang = state.lang;
-  document.documentElement.dir = state.lang === 'he' ? 'rtl' : 'ltr';
   document.title = t('title');
   $('#lang').value = state.lang;
   translate();
   const ms = $('#market-status');
-  if (ms.dataset.key) ms.textContent = t(ms.dataset.key);
+  if (ms.dataset.key) setText(ms, t(ms.dataset.key));
   setConn($('#conn-status').dataset.kind || 'connecting');
   state.symbols.forEach((s) => renderCard(s));
   renderUpdated();
@@ -375,6 +385,7 @@ function applyLang() {
 let toastTimer = 0;
 function toast(message, undo) {
   const el = $('#toast');
+  el.dir = textDir();
   $('.msg', el).textContent = message;
   const btn = $('.undo', el);
   btn.hidden = !undo;
