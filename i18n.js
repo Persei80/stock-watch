@@ -30,6 +30,7 @@ const I18N = {
     remove: 'Remove',
     install: 'Install app',
     delayed: 'Delayed',
+    help: 'How to use',
   },
   he: {
     title: 'מעקב מניות',
@@ -61,6 +62,7 @@ const I18N = {
     remove: 'הסרה',
     install: 'התקנת האפליקציה',
     delayed: 'בעיכוב',
+    help: 'איך משתמשים',
   },
 };
 

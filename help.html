@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>איך משתמשים – מעקב מניות</title>
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --surface: #ffffff;
+      --border: #dde2e8;
+      --text: #0f172a;
+      --muted: #475569;
+      --accent: #10b981;
+      --up: #059669;
+      --down: #dc2626;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 21px/1.6 system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+    }
+    main { max-width: 760px; margin: 0 auto; padding: 28px 16px 48px; }
+    header { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+    header img { width: 52px; height: 52px; border-radius: 12px; }
+    h1 { margin: 0; font-size: 32px; line-height: 1.2; }
+    .lead { color: var(--muted); margin: 4px 0 24px; }
+    .link {
+      display: block;
+      background: var(--surface);
+      border: 2px dashed var(--accent);
+      border-radius: 14px;
+      padding: 12px 16px;
+      margin-bottom: 28px;
+      font-weight: 700;
+      direction: ltr;
+      text-align: center;
+      color: var(--text);
+      text-decoration: none;
+      word-break: break-all;
+    }
+    section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 22px;
+      margin-bottom: 22px;
+      break-inside: avoid;
+    }
+    h2 { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; font-size: 26px; }
+    .num {
+      flex: none;
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      display: grid;
+      place-items: center;
+      font-size: 24px;
+    }
+    ol, ul { margin: 0 0 14px; padding-inline-start: 26px; }
+    li { margin-bottom: 6px; }
+    img.shot {
+      display: block;
+      max-width: 100%;
+      margin: 14px auto 0;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+    img.shot.small { max-width: 300px; }
+    img.shot.medium { max-width: 460px; }
+    .red { color: var(--down); font-weight: 700; }
+    .green { color: var(--up); font-weight: 700; }
+    .btn-like {
+      display: inline-block;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 8px;
+      padding: 0 10px;
+      font-weight: 700;
+    }
+    .key {
+      display: inline-block;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0 8px;
+      background: var(--bg);
+      font-weight: 700;
+    }
+    .tip { color: var(--muted); font-size: 19px; }
+    .en { direction: ltr; unicode-bidi: isolate; font-weight: 700; white-space: nowrap; }
+    @page { margin: 12mm; }
+    @media print {
+      body { background: #fff; font-size: 15px; line-height: 1.5; }
+      main { padding: 0; }
+      header img { width: 40px; height: 40px; }
+      h1 { font-size: 26px; }
+      .lead { margin-bottom: 12px; }
+      .link { margin-bottom: 14px; padding: 8px; }
+      section { padding: 12px 16px; margin-bottom: 12px; }
+      h2 { font-size: 20px; margin-bottom: 6px; }
+      .num { width: 32px; height: 32px; font-size: 18px; }
+      ol, ul { margin-bottom: 6px; }
+      li { margin-bottom: 2px; }
+      p { margin: 6px 0; }
+      .tip { font-size: 14px; }
+      img.shot { max-height: 210px; margin-top: 8px; }
+      img.shot.small { max-height: 190px; }
+      img.shot.medium { max-height: 260px; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <img src="icons/icon-192.png" alt="">
+      <h1>מעקב מניות – איך משתמשים</h1>
+    </header>
+    <p class="lead">המחירים מתעדכנים לבד, בזמן אמת. לא צריך סיסמה, הרשמה או קוד.</p>
+
+    <a class="link" href="https://persei80.github.io/stock-watch/">persei80.github.io/stock-watch</a>
+
+    <section>
+      <h2><span class="num">1</span> התקנה (פעם אחת בלבד)</h2>
+      <ol>
+        <li>פותחים את הקישור שלמעלה ב-Chrome.</li>
+        <li>לוחצים על הכפתור הירוק <span class="btn-like">התקנת האפליקציה</span> למעלה.</li>
+        <li>בחלון שנפתח לוחצים <span class="key">התקנה</span>.</li>
+      </ol>
+      <p>זהו! מעכשיו יש <b>סמל ירוק</b> בשולחן העבודה. לוחצים עליו כדי לפתוח את האפליקציה.</p>
+      <img class="shot" src="help/install.jpg" alt="הכפתור התקנת האפליקציה בראש המסך">
+    </section>
+
+    <section>
+      <h2><span class="num">2</span> מה רואים בכל מניה</h2>
+      <ul>
+        <li><b>1</b> – המחיר עכשיו.</li>
+        <li><b>2</b> – כמה המניה עלתה או ירדה היום.</li>
+        <li><span class="green">ירוק</span> = עלתה, <span class="red">אדום</span> = ירדה.</li>
+      </ul>
+      <p>לא צריך ללחוץ כלום – המחירים מתעדכנים לבד כל כמה שניות.</p>
+      <img class="shot small" src="help/card.jpg" alt="כרטיס מניה עם מחיר ושינוי יומי">
+    </section>
+
+    <section>
+      <h2><span class="num">3</span> הוספת מניה</h2>
+      <ol>
+        <li>כותבים בשורת החיפוש למעלה את <b>שם החברה באנגלית</b>, למשל <span class="en">tesla</span>.</li>
+        <li>לוחצים על השורה הראשונה ברשימה שנפתחת.</li>
+      </ol>
+      <p class="tip">טיפ: למניה אמריקאית בוחרים שורה עם <span class="en">NASDAQ</span> או <span class="en">NYSE</span>. למניה מהבורסה בתל אביב – שורה עם <span class="en">Tel Aviv Stock Exchange</span>.</p>
+      <img class="shot medium" src="help/add.jpg" alt="חיפוש tesla ובחירת השורה הראשונה">
+    </section>
+
+    <section>
+      <h2><span class="num">4</span> הסרת מניה</h2>
+      <p>לוחצים על <span class="key">✕</span> בפינת המניה.</p>
+      <p class="tip">לחצתם בטעות? לוחצים <b>ביטול</b> בהודעה שמופיעה למטה.</p>
+      <img class="shot small" src="help/remove.jpg" alt="כפתור ההסרה בפינת כרטיס המניה">
+    </section>
+
+    <p class="tip">"המסחר סגור" = הבורסה סגורה עכשיו (בלילה או בסוף שבוע). רואים את המחיר האחרון, ומחר הוא יתעדכן שוב לבד.</p>
+  </main>
+</body>
+</html>

@@ -89,14 +89,17 @@ function num(s) {
 
 function parseQuote(raw) {
   if (!raw || raw.code !== 0 || num(raw.last) == null) return null;
+  // Tel Aviv prices arrive in agorot although labelled ILS.
+  const scale = /-IL$/.test(raw.symbol) && raw.currencyCode === 'ILS' ? 0.01 : 1;
+  const price = (s) => { const n = num(s); return n == null ? null : n * scale; };
   const q = {
-    c: num(raw.last),
-    d: num(raw.change) ?? 0,
+    c: price(raw.last),
+    d: price(raw.change) ?? 0,
     dp: num(raw.change_pct) ?? 0,
-    o: num(raw.open),
-    h: num(raw.high),
-    l: num(raw.low),
-    pc: num(raw.previous_day_closing),
+    o: price(raw.open),
+    h: price(raw.high),
+    l: price(raw.low),
+    pc: price(raw.previous_day_closing),
     t: Date.parse(raw.last_time) || Date.now(),
     name: raw.name || raw.shortName || '',
     currency: raw.currencyCode || 'USD',
@@ -106,7 +109,7 @@ function parseQuote(raw) {
   };
   const ext = raw.ExtendedMktQuote;
   if (ext && (q.status === 'PRE_MKT' || q.status === 'POST_MKT') && num(ext.last) != null) {
-    q.ext = { type: ext.type, c: num(ext.last), d: num(ext.change) ?? 0, dp: num(ext.change_pct) ?? 0 };
+    q.ext = { type: ext.type, c: price(ext.last), d: price(ext.change) ?? 0, dp: num(ext.change_pct) ?? 0 };
   }
   return q;
 }
@@ -485,9 +488,11 @@ async function runSearch(q) {
     sym.textContent = r.symbol;
     const desc = document.createElement('span');
     desc.className = 'muted';
+    desc.dir = 'auto';
     desc.textContent = r.name;
     const exch = document.createElement('small');
     exch.className = 'muted exch';
+    exch.dir = 'auto';
     exch.textContent = r.exchange;
     li.append(sym, desc, exch);
     if (state.symbols.includes(r.symbol)) li.classList.add('in-list');
