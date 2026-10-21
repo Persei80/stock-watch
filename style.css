@@ -343,6 +343,23 @@ main { max-width: 1280px; margin: 0 auto; padding: 20px 24px 48px; }
 /* ---------- detail window ---------- */
 
 .card { cursor: pointer; }
+.chart-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 2px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}
+.chart-btn svg { color: var(--accent); }
+.card:hover .chart-btn, .chart-btn:focus-visible { border-color: var(--accent); }
 .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .detail {

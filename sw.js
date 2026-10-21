@@ -1,6 +1,6 @@
 // Network-first for the app's own files so updates show up right away;
 // the cache only serves them when offline. Quote requests are not touched.
-const CACHE = 'stock-watch-v2';
+const CACHE = 'stock-watch-v3';
 const SHELL = ['./', 'index.html', 'style.css', 'i18n.js', 'detail.js', 'app.js', 'manifest.webmanifest', 'icons/icon-192.png'];
 
 self.addEventListener('install', (e) => {
