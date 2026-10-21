@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stock Watch</title>
+  <meta name="description" content="Real-time stock watchlist">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%2310b981'/><path d='M6 22l6-7 5 4 9-10' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><rect width="32" height="32" rx="7" fill="var(--accent)"/><path d="M6 22l6-7 5 4 9-10" stroke="#fff" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <h1 data-i18n="title">Stock Watch</h1>
+    </div>
+    <div class="status">
+      <span id="market-status" class="pill" hidden></span>
+      <span id="conn-status" class="pill conn"><span class="dot"></span><span class="label"></span></span>
+    </div>
+    <div class="actions">
+      <select id="lang" aria-label="Language">
+        <option value="en">EN</option>
+        <option value="he">HE</option>
+      </select>
+      <button id="open-settings" class="icon-btn" data-i18n-title="settings" title="Settings">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-1.7-1L15 3.5h-4l-.3 2.5a7.4 7.4 0 0 0-1.7 1l-2.4-1-2 3.4 2 1.6a7.6 7.6 0 0 0 0 2l-2 1.6 2 3.4 2.4-1c.5.4 1.1.8 1.7 1l.3 2.5h4l.3-2.5c.6-.2 1.2-.6 1.7-1l2.4 1 2-3.4-2-1.6ZM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7Z" transform="translate(-1 0)"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main>
+    <section id="setup" class="setup" hidden>
+      <h2 data-i18n="setupTitle"></h2>
+      <p data-i18n="setupText"></p>
+      <ol>
+        <li data-i18n-html="setupStep1"></li>
+        <li data-i18n="setupStep2"></li>
+        <li data-i18n="setupStep3"></li>
+      </ol>
+      <form id="setup-form" class="key-form">
+        <input id="setup-key" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="apiKeyPlaceholder" required>
+        <button type="submit" class="btn primary" data-i18n="save"></button>
+      </form>
+    </section>
+
+    <section id="app" hidden>
+      <div class="toolbar">
+        <form id="add-form" class="add-form" autocomplete="off">
+          <div class="search-wrap">
+            <input id="add-input" type="text" spellcheck="false" data-i18n-placeholder="addPlaceholder" aria-autocomplete="list" aria-controls="suggestions">
+            <ul id="suggestions" class="suggestions" role="listbox" hidden></ul>
+          </div>
+          <button type="submit" class="btn primary" data-i18n="add"></button>
+        </form>
+        <div class="toolbar-right">
+          <label class="sort">
+            <span data-i18n="sortBy"></span>
+            <select id="sort">
+              <option value="manual" data-i18n="sortManual"></option>
+              <option value="change-desc" data-i18n="sortGainers"></option>
+              <option value="change-asc" data-i18n="sortLosers"></option>
+              <option value="symbol" data-i18n="sortSymbol"></option>
+            </select>
+          </label>
+          <span id="updated" class="muted small"></span>
+        </div>
+      </div>
+
+      <div id="grid" class="grid"></div>
+      <p id="empty" class="empty muted" data-i18n="empty" hidden></p>
+    </section>
+  </main>
+
+  <dialog id="settings">
+    <form method="dialog" class="dialog-body">
+      <h2 data-i18n="settings"></h2>
+      <label class="field">
+        <span data-i18n="apiKey"></span>
+        <input id="settings-key" type="text" autocomplete="off" spellcheck="false" data-i18n-placeholder="apiKeyPlaceholder">
+        <small class="muted" data-i18n-html="apiKeyHint"></small>
+      </label>
+      <div class="field">
+        <span data-i18n="watchlist"></span>
+        <button type="button" id="reset-list" class="btn" data-i18n="resetList"></button>
+      </div>
+      <div class="dialog-actions">
+        <button value="cancel" class="btn" data-i18n="cancel"></button>
+        <button value="save" id="settings-save" class="btn primary" data-i18n="save"></button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden>
+    <span class="msg"></span>
+    <button type="button" class="undo" hidden></button>
+  </div>
+
+  <template id="card-tpl">
+    <article class="card">
+      <button type="button" class="remove" aria-label="Remove">&times;</button>
+      <div class="card-head">
+        <div class="logo"></div>
+        <div class="ident">
+          <div class="symbol"></div>
+          <div class="name muted"></div>
+        </div>
+      </div>
+      <div class="price-row">
+        <span class="price" dir="ltr">—</span>
+        <span class="change" dir="ltr"></span>
+      </div>
+      <svg class="spark" viewBox="0 0 100 32" preserveAspectRatio="none" aria-hidden="true">
+        <line class="base" x1="0" x2="100" y1="16" y2="16"></line>
+        <polyline class="line" points=""></polyline>
+      </svg>
+      <div class="range" dir="ltr">
+        <div class="range-bar"><span class="range-mark"></span></div>
+        <div class="range-labels muted small"><span class="low"></span><span class="high"></span></div>
+      </div>
+      <dl class="stats small">
+        <div><dt class="muted" data-i18n="open"></dt><dd class="open" dir="ltr">—</dd></div>
+        <div><dt class="muted" data-i18n="prevClose"></dt><dd class="pc" dir="ltr">—</dd></div>
+      </dl>
+    </article>
+  </template>
+
+  <script src="i18n.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
