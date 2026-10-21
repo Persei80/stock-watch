@@ -18,10 +18,12 @@ const DEFAULT_STOCKS = [
   ['RGTI', 'Rigetti Computing'],
 ];
 
-const API = 'https://finnhub.io/api/v1';
-const WS_URL = 'wss://ws.finnhub.io';
-const QUOTE_REFRESH_MS = 60_000;
-const MARKET_REFRESH_MS = 5 * 60_000;
+// Public CNBC endpoints: no API key, CORS enabled, real-time for US stocks.
+const QUOTE_URL = 'https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol';
+const SEARCH_URL = 'https://symlookup.cnbc.com/symservice/symlookup.do';
+const POLL_FAST_MS = 3_000;   // a market session is active
+const POLL_SLOW_MS = 30_000;  // everything closed, or the window is hidden
+const QUOTE_CHUNK = 25;
 const SPARK_MAX_POINTS = 240;
 const SPARK_MIN_GAP_MS = 5_000;
 
@@ -52,22 +54,19 @@ function saveSession(key, value) {
 // ---------- state ----------
 
 const state = {
-  apiKey: store.get('apiKey', ''),
   lang: I18N[store.get('lang')] ? store.get('lang') : detectLang(),
   sort: store.get('sort', 'manual'),
   symbols: store.get('symbols', DEFAULT_STOCKS.map(([s]) => s)),
-  profiles: store.get('profiles', Object.fromEntries(DEFAULT_STOCKS.map(([s, name]) => [s, { name }]))),
-  quotes: {},        // symbol -> { c, d, dp, h, l, o, pc, t }
+  names: store.get('names', Object.fromEntries(DEFAULT_STOCKS)),
+  quotes: {},        // symbol -> parsed quote, see parseQuote()
   ticks: loadSession('ticks', {}), // symbol -> [[t, price], ...] for the sparkline
   cards: new Map(),  // symbol -> card element
-  ws: null,
-  wsRetry: 0,
   lastUpdate: 0,
+  pollTimer: 0,
 };
 
 function detectLang() {
-  const nav = (navigator.language || 'en').slice(0, 2);
-  return I18N[nav] ? nav : 'en';
+  return (navigator.language || 'en').slice(0, 2) === 'he' ? 'he' : 'en';
 }
 
 function t(key, vars) {
@@ -77,159 +76,112 @@ function t(key, vars) {
 }
 
 const $ = (sel, root = document) => root.querySelector(sel);
-
-// ---------- API ----------
-
-class ApiError extends Error {
-  constructor(status) { super('HTTP ' + status); this.status = status; }
-}
-
-// Finnhub's free tier allows 60 requests/minute; space calls out a little.
-let apiChain = Promise.resolve();
-function api(path, params = {}) {
-  const run = async () => {
-    const url = new URL(API + path);
-    for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-    url.searchParams.set('token', state.apiKey);
-    let res = await fetch(url);
-    if (res.status === 429) {
-      await sleep(2_000);
-      res = await fetch(url);
-    }
-    if (!res.ok) throw new ApiError(res.status);
-    return res.json();
-  };
-  const p = apiChain.then(run);
-  apiChain = p.catch(() => {}).then(() => sleep(120));
-  return p;
-}
-
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function handleApiError(err) {
-  if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-    toast(t('badKey'));
-    setConn('offline');
-  } else if (err instanceof ApiError && err.status === 429) {
-    toast(t('rateLimit'));
-  } else {
-    console.warn(err);
-  }
+// ---------- data ----------
+
+// CNBC sends numbers as display strings: "1,677.96", "+2.35%".
+function num(s) {
+  if (s == null || s === '') return null;
+  const n = parseFloat(String(s).replace(/[,%+\s]/g, ''));
+  return Number.isFinite(n) ? n : null;
 }
 
-async function fetchQuote(symbol) {
-  const q = await api('/quote', { symbol });
-  // Finnhub answers unknown symbols with all zeros.
-  if (!q || (!q.c && !q.pc)) return null;
+function parseQuote(raw) {
+  if (!raw || raw.code !== 0 || num(raw.last) == null) return null;
+  const q = {
+    c: num(raw.last),
+    d: num(raw.change) ?? 0,
+    dp: num(raw.change_pct) ?? 0,
+    o: num(raw.open),
+    h: num(raw.high),
+    l: num(raw.low),
+    pc: num(raw.previous_day_closing),
+    t: Date.parse(raw.last_time) || Date.now(),
+    name: raw.name || raw.shortName || '',
+    currency: raw.currencyCode || 'USD',
+    realTime: raw.realTime === 'true',
+    status: raw.curmktstatus || '',
+    ext: null,
+  };
+  const ext = raw.ExtendedMktQuote;
+  if (ext && (q.status === 'PRE_MKT' || q.status === 'POST_MKT') && num(ext.last) != null) {
+    q.ext = { type: ext.type, c: num(ext.last), d: num(ext.change) ?? 0, dp: num(ext.change_pct) ?? 0 };
+  }
   return q;
 }
 
-async function fetchProfile(symbol) {
-  try {
-    const p = await api('/stock/profile2', { symbol });
-    const prev = state.profiles[symbol] || {};
-    state.profiles[symbol] = p && p.name
-      ? { name: p.name, logo: p.logo || '', currency: p.currency || 'USD', fetched: true }
-      : { ...prev, fetched: true };
-    store.set('profiles', state.profiles);
-    renderCard(symbol);
-  } catch (err) { handleApiError(err); }
+async function fetchQuotes(symbols) {
+  const out = {};
+  for (let i = 0; i < symbols.length; i += QUOTE_CHUNK) {
+    const url = new URL(QUOTE_URL);
+    url.search = new URLSearchParams({
+      symbols: symbols.slice(i, i + QUOTE_CHUNK).join('|'),
+      requestMethod: 'itv', noform: '1', partnerId: '2', fund: '1', exthrs: '1', output: 'json',
+    });
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    let list = data?.FormattedQuoteResult?.FormattedQuote || [];
+    if (!Array.isArray(list)) list = [list];
+    for (const raw of list) if (raw && raw.symbol) out[raw.symbol] = parseQuote(raw);
+  }
+  return out;
 }
 
 async function refreshQuotes() {
-  for (const symbol of [...state.symbols]) {
-    try {
-      const q = await fetchQuote(symbol);
-      if (q && state.symbols.includes(symbol)) {
-        state.quotes[symbol] = { ...q };
-        pushTick(symbol, q.c, q.t ? q.t * 1000 : Date.now());
-        renderCard(symbol);
-        markUpdated();
-      }
-    } catch (err) {
-      handleApiError(err);
-      if (err.status === 401 || err.status === 403) return;
-    }
+  const symbols = [...state.symbols];
+  if (!symbols.length) return;
+  let quotes;
+  try {
+    quotes = await fetchQuotes(symbols);
+  } catch (err) {
+    console.warn(err);
+    setConn('offline');
+    return;
   }
+  setConn('live');
+  for (const symbol of symbols) {
+    const q = quotes[symbol];
+    if (!q || !state.symbols.includes(symbol)) continue;
+    const prev = state.quotes[symbol];
+    state.quotes[symbol] = q;
+    if (q.name && state.names[symbol] !== q.name) {
+      state.names[symbol] = q.name;
+      store.set('names', state.names);
+    }
+    pushTick(symbol, q.ext ? q.ext.c : q.c, Date.now());
+    const now = q.ext ? q.ext.c : q.c;
+    const was = prev ? (prev.ext ? prev.ext.c : prev.c) : now;
+    renderCard(symbol, now > was ? 'up' : now < was ? 'down' : null);
+  }
+  markUpdated();
+  renderMarketStatus();
   if (state.sort !== 'manual') applySort();
 }
 
-async function refreshMarketStatus() {
-  try {
-    const m = await api('/stock/market-status', { exchange: 'US' });
-    const el = $('#market-status');
-    let key = 'marketClosed', cls = 'closed';
-    if (m.session === 'pre-market') { key = 'marketPre'; cls = 'ext'; }
-    else if (m.session === 'post-market') { key = 'marketPost'; cls = 'ext'; }
-    else if (m.isOpen) { key = 'marketOpen'; cls = 'open'; }
-    el.dataset.key = key;
-    el.className = 'pill market ' + cls;
-    el.textContent = t(key);
-    el.hidden = false;
-  } catch (err) { handleApiError(err); }
+// Poll quickly while any market we follow is trading, slowly otherwise.
+async function pollLoop() {
+  clearTimeout(state.pollTimer);
+  await refreshQuotes();
+  const active = Object.values(state.quotes).some((q) => q && q.status && q.status !== 'CLOSED' && q.status !== 'AFTER_MKT_CLOSED');
+  const delay = document.visibilityState === 'visible' && active ? POLL_FAST_MS : POLL_SLOW_MS;
+  state.pollTimer = setTimeout(pollLoop, delay);
 }
 
-// ---------- live trades over WebSocket ----------
-
-function connectWs() {
-  if (!state.apiKey) return;
-  if (state.ws) { state.ws.onclose = null; state.ws.close(); }
-  setConn('connecting');
-  const ws = new WebSocket(WS_URL + '?token=' + encodeURIComponent(state.apiKey));
-  state.ws = ws;
-  ws.onopen = () => {
-    state.wsRetry = 0;
-    setConn('live');
-    state.symbols.forEach(subscribe);
-  };
-  ws.onmessage = (ev) => {
-    let msg;
-    try { msg = JSON.parse(ev.data); } catch { return; }
-    if (msg.type !== 'trade' || !Array.isArray(msg.data)) return;
-    // Keep only the latest trade per symbol from this batch.
-    const latest = {};
-    for (const tr of msg.data) {
-      if (!latest[tr.s] || tr.t >= latest[tr.s].t) latest[tr.s] = tr;
-    }
-    for (const tr of Object.values(latest)) applyTrade(tr.s, tr.p, tr.t);
-  };
-  ws.onclose = () => {
-    setConn('offline');
-    const delay = Math.min(30_000, 1_000 * 2 ** state.wsRetry++);
-    setTimeout(() => { if (state.ws === ws) connectWs(); }, delay);
-  };
-  ws.onerror = () => ws.close();
-}
-
-function subscribe(symbol) {
-  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-    state.ws.send(JSON.stringify({ type: 'subscribe', symbol }));
-  }
-}
-function unsubscribe(symbol) {
-  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-    state.ws.send(JSON.stringify({ type: 'unsubscribe', symbol }));
-  }
-}
-
-function applyTrade(symbol, price, time) {
-  const q = state.quotes[symbol];
-  if (!q || !state.symbols.includes(symbol)) return;
-  const prev = q.c;
-  q.c = price;
-  if (q.pc) {
-    q.d = price - q.pc;
-    q.dp = (q.d / q.pc) * 100;
-  }
-  if (q.h && price > q.h) q.h = price;
-  if (q.l && price < q.l) q.l = price;
-  pushTick(symbol, price, time);
-  renderCard(symbol, price > prev ? 'up' : price < prev ? 'down' : null);
-  markUpdated();
+async function searchSymbols(q) {
+  const url = new URL(SEARCH_URL);
+  url.search = new URLSearchParams({ prefix: q, partnerid: '20064', pgok: '1', pgsize: '10' });
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  return (Array.isArray(data) ? data : [])
+    .filter((r) => r && r.symbolName && (r.issueType === 'STOCK' || r.issueType === 'ETF'))
+    .map((r) => ({ symbol: r.symbolName, name: r.companyName || '', exchange: r.exchangeName || '' }));
 }
 
 function pushTick(symbol, price, time) {
-  if (!price) return;
+  if (price == null) return;
   const arr = state.ticks[symbol] || (state.ticks[symbol] = []);
   const last = arr[arr.length - 1];
   if (last && time - last[0] < SPARK_MIN_GAP_MS) last[1] = price;
@@ -262,10 +214,14 @@ function fmtSigned(value, digits = 2) {
   return (value > 0 ? '+' : value < 0 ? '−' : '') + s;
 }
 
+const fmtChange = (d, dp) => `${fmtSigned(d)} (${fmtSigned(dp)}%)`;
+const dirOf = (d) => (d > 0 ? 'up' : d < 0 ? 'down' : 'flat');
+
 function createCard(symbol) {
   const node = $('#card-tpl').content.firstElementChild.cloneNode(true);
   node.dataset.symbol = symbol;
   $('.remove', node).addEventListener('click', () => removeSymbol(symbol));
+  $('.logo', node).textContent = symbol.replace(/^\d+/, '')[0] || symbol[0];
   translate(node);
   state.cards.set(symbol, node);
   return node;
@@ -274,35 +230,30 @@ function createCard(symbol) {
 function renderCard(symbol, flash) {
   const card = state.cards.get(symbol);
   if (!card) return;
-  const profile = state.profiles[symbol] || {};
   const q = state.quotes[symbol];
-  const cur = profile.currency || 'USD';
 
   $('.symbol', card).textContent = symbol;
-  $('.name', card).textContent = profile.name || '';
+  $('.name', card).textContent = state.names[symbol] || '';
   $('.remove', card).title = t('remove');
   $('.remove', card).setAttribute('aria-label', t('remove') + ' ' + symbol);
 
-  const logo = $('.logo', card);
-  if (profile.logo && !logo.querySelector('img')) {
-    const img = document.createElement('img');
-    img.alt = '';
-    img.loading = 'lazy';
-    img.src = profile.logo;
-    img.onerror = () => { img.remove(); logo.textContent = symbol[0]; };
-    logo.textContent = '';
-    logo.append(img);
-  } else if (!profile.logo && !logo.textContent) {
-    logo.textContent = symbol[0];
-  }
-
   if (!q) return;
+  const cur = q.currency;
 
   $('.price', card).textContent = fmtPrice(q.c, cur);
-  const change = $('.change', card);
-  change.textContent = `${fmtSigned(q.d ?? 0)} (${fmtSigned(q.dp ?? 0)}%)`;
-  const dir = (q.d ?? 0) > 0 ? 'up' : (q.d ?? 0) < 0 ? 'down' : 'flat';
-  card.dataset.dir = dir;
+  $('.change', card).textContent = fmtChange(q.d, q.dp);
+  card.dataset.dir = dirOf(q.d);
+  $('.delayed', card).hidden = q.realTime;
+
+  const ext = $('.ext', card);
+  ext.hidden = !q.ext;
+  if (q.ext) {
+    $('.ext-label', ext).textContent = t(q.ext.type === 'PRE_MKT' ? 'marketPre' : 'marketPost');
+    $('.ext-price', ext).textContent = fmtPrice(q.ext.c, cur);
+    const ch = $('.ext-change', ext);
+    ch.textContent = fmtChange(q.ext.d, q.ext.dp);
+    ch.dataset.dir = dirOf(q.ext.d);
+  }
 
   $('.open', card).textContent = fmtPrice(q.o, cur);
   $('.pc', card).textContent = fmtPrice(q.pc, cur);
@@ -310,7 +261,7 @@ function renderCard(symbol, flash) {
   $('.high', card).textContent = fmtPrice(q.h, cur);
   const span = q.h - q.l;
   const pos = span > 0 ? ((q.c - q.l) / span) * 100 : 50;
-  $('.range-mark', card).style.left =Math.max(0, Math.min(100, pos)) + '%';
+  $('.range-mark', card).style.left = Math.max(0, Math.min(100, pos)) + '%';
 
   renderSpark(card, symbol, q);
 
@@ -332,18 +283,33 @@ function renderSpark(card, symbol, q) {
     return;
   }
   const prices = pts.map((p) => p[1]);
-  let min = Math.min(...prices, q.pc || Infinity);
-  let max = Math.max(...prices, q.pc || -Infinity);
+  let min = Math.min(...prices, q.pc ?? Infinity);
+  let max = Math.max(...prices, q.pc ?? -Infinity);
   if (max === min) { max += 1; min -= 1; }
   const t0 = pts[0][0], t1 = pts[pts.length - 1][0];
   const tspan = t1 - t0 || 1;
   const y = (v) => (30 - ((v - min) / (max - min)) * 28).toFixed(2);
   line.setAttribute('points', pts.map(([tt, v]) => `${(((tt - t0) / tspan) * 100).toFixed(2)},${y(v)}`).join(' '));
-  if (q.pc) {
+  if (q.pc != null) {
     base.style.display = '';
     base.setAttribute('y1', y(q.pc));
     base.setAttribute('y2', y(q.pc));
   }
+}
+
+// The US session drives the header pill; most of the list is US-listed.
+function renderMarketStatus() {
+  const us = Object.values(state.quotes).find((q) => q && q.realTime) || Object.values(state.quotes).find(Boolean);
+  const el = $('#market-status');
+  if (!us) { el.hidden = true; return; }
+  let key = 'marketClosed', cls = 'closed';
+  if (us.status === 'REG_MKT') { key = 'marketOpen'; cls = 'open'; }
+  else if (us.status === 'PRE_MKT') { key = 'marketPre'; cls = 'ext'; }
+  else if (us.status === 'POST_MKT') { key = 'marketPost'; cls = 'ext'; }
+  el.dataset.key = key;
+  el.className = 'pill market ' + cls;
+  el.textContent = t(key);
+  el.hidden = false;
 }
 
 function renderAll() {
@@ -384,7 +350,6 @@ function setConn(kind) {
 
 function translate(root = document) {
   root.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
-  root.querySelectorAll('[data-i18n-html]').forEach((el) => { el.innerHTML = t(el.dataset.i18nHtml); });
   root.querySelectorAll('[data-i18n-placeholder]').forEach((el) => { el.placeholder = t(el.dataset.i18nPlaceholder); });
   root.querySelectorAll('[data-i18n-title]').forEach((el) => { el.title = t(el.dataset.i18nTitle); });
 }
@@ -397,8 +362,7 @@ function applyLang() {
   translate();
   const ms = $('#market-status');
   if (ms.dataset.key) ms.textContent = t(ms.dataset.key);
-  const conn = $('#conn-status').dataset.kind;
-  if (conn) setConn(conn);
+  setConn($('#conn-status').dataset.kind || 'connecting');
   state.symbols.forEach((s) => renderCard(s));
   renderUpdated();
 }
@@ -422,31 +386,28 @@ function toast(message, undo) {
 
 function saveSymbols() { store.set('symbols', state.symbols); }
 
-async function addSymbol(raw, name) {
+async function addSymbol(raw) {
   const symbol = raw.trim().toUpperCase();
   if (!symbol) return;
   if (state.symbols.includes(symbol)) { toast(t('exists', { s: symbol })); return; }
   let q;
-  try { q = await fetchQuote(symbol); } catch (err) { handleApiError(err); return; }
+  try { q = (await fetchQuotes([symbol]))[symbol]; } catch (err) { console.warn(err); toast(t('offline')); return; }
   if (!q) { toast(t('notFound', { s: symbol })); return; }
-  insertSymbol(symbol, state.symbols.length, q, name);
+  insertSymbol(symbol, state.symbols.length, q);
   toast(t('added', { s: symbol }));
-  if (!state.profiles[symbol]?.fetched) fetchProfile(symbol);
 }
 
-function insertSymbol(symbol, index, quote, name) {
+function insertSymbol(symbol, index, quote) {
   state.symbols.splice(index, 0, symbol);
   saveSymbols();
-  if (name && !state.profiles[symbol]) state.profiles[symbol] = { name };
   if (quote) {
-    state.quotes[symbol] = { ...quote };
-    pushTick(symbol, quote.c, quote.t ? quote.t * 1000 : Date.now());
+    state.quotes[symbol] = quote;
+    if (quote.name) { state.names[symbol] = quote.name; store.set('names', state.names); }
+    pushTick(symbol, quote.ext ? quote.ext.c : quote.c, Date.now());
   }
-  const card = createCard(symbol);
-  $('#grid').append(card);
+  $('#grid').append(createCard(symbol));
   renderCard(symbol);
   applySort();
-  subscribe(symbol);
   $('#empty').hidden = true;
 }
 
@@ -456,7 +417,6 @@ function removeSymbol(symbol) {
   const quote = state.quotes[symbol];
   state.symbols.splice(index, 1);
   saveSymbols();
-  unsubscribe(symbol);
   state.cards.get(symbol)?.remove();
   state.cards.delete(symbol);
   delete state.quotes[symbol];
@@ -502,21 +462,18 @@ function setupSearch() {
     const items = [...list.children];
     const picked = !list.hidden && activeIndex >= 0 ? items[activeIndex] : null;
     const symbol = picked ? picked.dataset.symbol : input.value;
-    const name = picked ? picked.dataset.name : undefined;
     input.value = '';
     hideSuggestions();
-    addSymbol(symbol, name);
+    addSymbol(symbol);
   });
 }
 
 async function runSearch(q) {
   const seq = ++searchSeq;
-  let res;
-  try { res = await api('/search', { q, exchange: 'US' }); } catch (err) { handleApiError(err); return; }
+  let items;
+  try { items = await searchSymbols(q); } catch (err) { console.warn(err); return; }
   if (seq !== searchSeq) return;
-  const items = (res.result || [])
-    .filter((r) => r.symbol && !r.symbol.includes('.'))
-    .slice(0, 8);
+  items = items.slice(0, 8);
   const list = $('#suggestions');
   list.replaceChildren();
   activeIndex = -1;
@@ -524,19 +481,21 @@ async function runSearch(q) {
     const li = document.createElement('li');
     li.role = 'option';
     li.dataset.symbol = r.symbol;
-    li.dataset.name = r.description || '';
     const sym = document.createElement('strong');
-    sym.textContent = r.displaySymbol || r.symbol;
+    sym.textContent = r.symbol;
     const desc = document.createElement('span');
     desc.className = 'muted';
-    desc.textContent = r.description || '';
-    li.append(sym, desc);
+    desc.textContent = r.name;
+    const exch = document.createElement('small');
+    exch.className = 'muted exch';
+    exch.textContent = r.exchange;
+    li.append(sym, desc, exch);
     if (state.symbols.includes(r.symbol)) li.classList.add('in-list');
     li.addEventListener('mousedown', (e) => {
       e.preventDefault();
       $('#add-input').value = '';
       hideSuggestions();
-      addSymbol(r.symbol, r.description);
+      addSymbol(r.symbol);
     });
     list.append(li);
   }
@@ -548,40 +507,9 @@ function hideSuggestions() {
   activeIndex = -1;
 }
 
-// ---------- settings ----------
+// ---------- controls ----------
 
-function setupSettings() {
-  const dlg = $('#settings');
-  $('#open-settings').addEventListener('click', () => {
-    $('#settings-key').value = state.apiKey;
-    dlg.showModal();
-  });
-  dlg.addEventListener('close', () => {
-    if (dlg.returnValue !== 'save') return;
-    const key = $('#settings-key').value.trim();
-    if (key && key !== state.apiKey) setApiKey(key);
-  });
-  $('#reset-list').addEventListener('click', () => {
-    if (!confirm(t('resetConfirm'))) return;
-    state.symbols.forEach(unsubscribe);
-    state.cards.forEach((c) => c.remove());
-    state.cards.clear();
-    state.quotes = {};
-    state.symbols = DEFAULT_STOCKS.map(([s]) => s);
-    for (const [s, name] of DEFAULT_STOCKS) if (!state.profiles[s]) state.profiles[s] = { name };
-    saveSymbols();
-    dlg.close('cancel');
-    renderAll();
-    state.symbols.forEach(subscribe);
-    refreshQuotes();
-  });
-
-  $('#setup-form').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const key = $('#setup-key').value.trim();
-    if (key) setApiKey(key);
-  });
-
+function setupControls() {
   $('#lang').addEventListener('change', (e) => {
     state.lang = e.target.value;
     store.set('lang', state.lang);
@@ -594,46 +522,53 @@ function setupSettings() {
     store.set('sort', state.sort);
     applySort();
   });
+
+  $('#reset-list').addEventListener('click', () => {
+    if (!confirm(t('resetConfirm'))) return;
+    state.cards.forEach((c) => c.remove());
+    state.cards.clear();
+    state.quotes = {};
+    state.symbols = DEFAULT_STOCKS.map(([s]) => s);
+    for (const [s, name] of DEFAULT_STOCKS) if (!state.names[s]) state.names[s] = name;
+    saveSymbols();
+    renderAll();
+    pollLoop();
+  });
 }
 
-function setApiKey(key) {
-  state.apiKey = key;
-  store.set('apiKey', key);
-  start();
+// ---------- install as an app ----------
+
+function setupInstall() {
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    navigator.serviceWorker.register('sw.js').catch((err) => console.warn(err));
+  }
+  const btn = $('#install');
+  let deferred = null;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferred = e;
+    btn.hidden = false;
+  });
+  btn.addEventListener('click', async () => {
+    if (!deferred) return;
+    deferred.prompt();
+    await deferred.userChoice;
+    deferred = null;
+    btn.hidden = true;
+  });
+  window.addEventListener('appinstalled', () => { btn.hidden = true; });
 }
 
 // ---------- boot ----------
 
-let timers = [];
-function start() {
-  timers.forEach(clearInterval);
-  timers = [];
-  const hasKey = Boolean(state.apiKey);
-  $('#setup').hidden = hasKey;
-  $('#app').hidden = !hasKey;
-  $('#conn-status').hidden = !hasKey;
-  if (!hasKey) return;
-
-  renderAll();
-  connectWs();
-  refreshMarketStatus();
-  refreshQuotes().then(() => {
-    // Fetch logos for anything we haven't seen yet, after the quotes.
-    state.symbols.filter((s) => !state.profiles[s]?.fetched).forEach(fetchProfile);
-  });
-  timers.push(setInterval(refreshQuotes, QUOTE_REFRESH_MS));
-  timers.push(setInterval(refreshMarketStatus, MARKET_REFRESH_MS));
-}
-
 document.addEventListener('visibilitychange', () => {
-  // Browsers throttle background tabs; catch up when the tab comes back.
-  if (document.visibilityState === 'visible' && state.apiKey && Date.now() - state.lastUpdate > 30_000) {
-    refreshQuotes();
-    if (!state.ws || state.ws.readyState > WebSocket.OPEN) connectWs();
-  }
+  // Background tabs poll slowly; catch up as soon as the window is visible.
+  if (document.visibilityState === 'visible' && Date.now() - state.lastUpdate > POLL_FAST_MS) pollLoop();
 });
 
-setupSettings();
+setupControls();
 setupSearch();
+setupInstall();
 applyLang();
-start();
+renderAll();
+pollLoop();
