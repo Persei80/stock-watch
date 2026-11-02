@@ -182,15 +182,54 @@ async function pollLoop() {
   state.pollTimer = setTimeout(pollLoop, delay);
 }
 
-async function searchSymbols(q) {
+// Keep only the Latin words of what was typed, so a Google-style query like
+// "מניית nordex se" still works.
+function cleanQuery(raw) {
+  return raw.split(/\s+/).filter((w) => /[a-z0-9]/i.test(w)).join(' ');
+}
+
+// CNBC only matches the start of the official name ("D-Wave", "Jinko Holdings"),
+// so also try the spellings people type: "d wave", "dwave", "jinko solar".
+function queryVariants(q) {
+  const words = q.toLowerCase().split(' ');
+  const out = [words.join(' '), words.join('-'), words.join(''), words[0]];
+  if (words.length === 1 && words[0].length > 3) out.push(words[0][0] + '-' + words[0].slice(1));
+  return [...new Set(out)];
+}
+
+// Primary listings first: US exchanges, then home markets (Xetra, Euronext,
+// Tel Aviv…), then Frankfurt, OTC and foreign cross-listings.
+function listingRank(r, q) {
+  if (r.symbol.toUpperCase() === q.toUpperCase()) return -1;
+  if (/^(NASDAQ|NYSE|NYSE American|NYSE Arca)$/i.test(r.exchange)) return 0;
+  if (/^0\w+-GB$|^1\w+-IT$/.test(r.symbol)) return 4; // London/Milan copies of foreign stocks
+  if (/Frankfurt/i.test(r.exchange)) return 3;
+  if (/^OTC|Over The Counter/i.test(r.exchange)) return 4;
+  if (/Sao Paulo/i.test(r.exchange)) return 5;
+  return 1;
+}
+
+async function lookup(prefix) {
   const url = new URL(SEARCH_URL);
-  url.search = new URLSearchParams({ prefix: q, partnerid: '20064', pgok: '1', pgsize: '10' });
+  url.search = new URLSearchParams({ prefix, partnerid: '20064', pgok: '1', pgsize: '20' });
   const res = await fetch(url);
   if (!res.ok) throw new Error('HTTP ' + res.status);
   const data = await res.json();
   return (Array.isArray(data) ? data : [])
     .filter((r) => r && r.symbolName && (r.issueType === 'STOCK' || r.issueType === 'ETF'))
     .map((r) => ({ symbol: r.symbolName, name: r.companyName || '', exchange: r.exchangeName || '' }));
+}
+
+async function searchSymbols(raw) {
+  const q = cleanQuery(raw);
+  if (!q) return [];
+  const variants = queryVariants(q);
+  const results = await Promise.all(variants.map((v) => lookup(v).catch(() => [])));
+  const hits = results.find((r) => r.length) || [];
+  return hits
+    .map((r, i) => ({ r, i, rank: listingRank(r, q) }))
+    .sort((a, b) => a.rank - b.rank || a.i - b.i)
+    .map((x) => x.r);
 }
 
 function pushTick(symbol, price, time) {
@@ -416,12 +455,24 @@ function toast(message, undo) {
 function saveSymbols() { store.set('symbols', state.symbols); }
 
 async function addSymbol(raw) {
-  const symbol = raw.trim().toUpperCase();
-  if (!symbol) return;
+  const text = cleanQuery(raw.trim());
+  if (!text) return;
+  let symbol = text.toUpperCase();
   if (state.symbols.includes(symbol)) { toast(t('exists', { s: symbol })); return; }
-  let q;
-  try { q = (await fetchQuotes([symbol]))[symbol]; } catch (err) { console.warn(err); toast(t('offline')); return; }
-  if (!q) { toast(t('notFound', { s: symbol })); return; }
+  let q = null;
+  try {
+    // A ticker first; otherwise treat it as a company name and take the best match.
+    if (!text.includes(' ')) q = (await fetchQuotes([symbol]))[symbol];
+    if (!q) {
+      const best = (await searchSymbols(text))[0];
+      if (best) {
+        symbol = best.symbol;
+        if (state.symbols.includes(symbol)) { toast(t('exists', { s: symbol })); return; }
+        q = (await fetchQuotes([symbol]))[symbol];
+      }
+    }
+  } catch (err) { console.warn(err); toast(t('offline')); return; }
+  if (!q) { toast(t('notFound', { s: text })); return; }
   insertSymbol(symbol, state.symbols.length, q);
   toast(t('added', { s: symbol }));
 }
